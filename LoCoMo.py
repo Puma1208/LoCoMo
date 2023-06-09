@@ -11,6 +11,7 @@ from skspatial.plotting import plot_3d
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from scipy.stats import multivariate_normal
+from scipy.spatial.transform import Rotation
 
 # EPSILON = sys.float_info.epsilon
 EPSILON = 0.1
@@ -24,7 +25,16 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
     final_poses = []
     final_transformations = []
     poses_probabilities = []
+
+    # Store the normals of the points - dictionary
     
+    # points_normals = {np.array(p): normal for p, normal in zip(point_cloud.points, point_cloud.normals)}
+    
+
+    print()
+    print(np.where(np.all(np.array(point_cloud.points) ==np.array([ 0.60023875, 12.41004326, -3.91415663]), axis=1)))
+    # for point in point_cloud.points:
+    #     print(point)
     zero_moment_shifts = list(map(lambda x: zero_moment_shift(x, sphere_radius, np.asarray(point_cloud.points)), point_cloud.points))
 
     # Gripper model as triangular meshes
@@ -41,10 +51,19 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
     # finger_model  -> could either be a mesh -> to be transformed to a list of triangle meshes to compute
     #               -> would be nice to find a way to split and get the relevant faces, not all of them
     #               -> a list of meshes constituing the whole finger model
-    for finger_face in finger_faces:
-        for point in np.asarray(point_cloud.points)[0:10]:
 
-            poses, transformations = sample_finger_poses_random(point, finger_face, fingers_model, poses_to_sample)
+    # for pt, normal in zip(point_cloud.points, point_cloud.normals):
+        # print("     ", pt, "___", normal)
+
+    # points_normals = {key: value for key, value in x}
+    for finger_face in finger_faces:
+        for (p, normal, zero_moment) in zip(point_cloud.points[0:10], point_cloud.normals[0:10], zero_moment_shifts[0:10]):
+            # print('normal ', p.normal)
+            projected_pc = np.asarray(p)
+            poses, transformations = sample_finger_poses_opposite(projected_pc, normal, finger_face, fingers_model, poses_to_sample)
+            # poses, transformations = sample_finger_poses_random(projected_pc, finger_face, fingers_model, poses_to_sample)
+
+            
             for pose, t in zip(poses[0:5], transformations[0:5]):
                 gripper_transform = copy.deepcopy(fingers_model).transform(t)
 
@@ -56,6 +75,7 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
                 points_within_d = select_within_distance(pose, point_cloud, distance)
                 locomo_prob = []
                 for point_to_project in points_within_d[0:2]:
+                    # TODO maybe the zero moment shifts to be computed are of the original point and its projection
                     projected_point = project_point_on_surface(pose, point_to_project)
                     # Compute the Local Contact Probabilty
                     # TODO when computing the error -> does the zero moment between the gripper and the object
@@ -66,14 +86,14 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
                     n_1 = zero_moment_shift(sphere_center=projected_point, sphere_radius=sphere_radius, points=points_within_d)
                     # Need to get the point cloud of the gripper/face on which the point is projected
                     # that are within a distance d from the point then compute the zms 
-                    point = o3d.geometry.PointCloud(o3d.utility.Vector3dVector([projected_point]))
+                    projected_pc = o3d.geometry.PointCloud(o3d.utility.Vector3dVector([projected_point]))
                     pose_pc = mesh_to_point_cloud(pose, 1000)
-                    points_within_d_gripper = select_within_distance_pc(pose_pc, point, distance)
+                    points_within_d_gripper = select_within_distance_pc(pose_pc, projected_pc, distance)
 
                     n_2 = zero_moment_shift(sphere_center=projected_point, sphere_radius=sphere_radius, points=points_within_d_gripper)
                     # Error between the 2 zero-shift vectors
                     # TODO figure out whether the computed zero moment shifts at the beginning should be used here
-                    zms_error = n_1 -n_2
+                    zms_error = zero_moment - n_1
                     # points_within_d = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_within_d))
                     # mu, Sigma = points_within_d.compute_mean_and_covariance()
                     mu, Sigma = mean_covariance_points(points_within_d)
@@ -164,7 +184,6 @@ def sample_finger_poses_around(point, gripper_model):
                                         need to either find a way to separate the components of the mesh or directtly have the files of the mesh separated
     """    
 
-    # Need a method to select face that is touching the object - need from mesh
     
     # Find suitable poses of the gripper around the point
     # Possibilities:    randomly select [x, y, z, rx, ry, rz] but with the finger touching the point
@@ -173,13 +192,78 @@ def sample_finger_poses_around(point, gripper_model):
 
     return -1
 
-def sample_finger_poses_opposite(point, finger_model):
+def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, amount_poses=10):
     # Rotate the gripper such that the surface normal vector of the point points in the opposite direction
     # than the surface normal of the gripper
-    # Sample the other rotation -> choose if uniform/random/etc
     # Sample the points on the gripper such that the are in contact with the goal point 
     # Need the surface that will be around the object
+
+
+    new_p = np.array([point]).astype(np.int32)
+    point_goal=o3d.geometry.PointCloud(o3d.utility.Vector3dVector(new_p))
+
+    finger_pc = mesh_to_point_cloud(finger_mesh)
+    face_pc = mesh_to_point_cloud(finger_face)
+    
+    poses = []
+    T = []
+    for _ in range(amount_poses):
+
+        # Rotation happends around the center of the object
+        # Move the center to the origin, then rotate, then translate back to initial position
+        # Need to use the formula: T(x, y, z)*R(x, y, z)*T(-x, -y, -z)
+
+        # The rotation must be done in such a way that the normal vectors should face opposite directions
+        center = finger_mesh.get_center()
+        translate_to_center = np.eye(4)
+        translate_to_center[:3, 3] = -center
+        copy_finger = copy.deepcopy(finger_mesh).transform(translate_to_center)
+
+
+        # Choose the random point which normal vector should be in opposite direction of goal point
+        # Other degrees of rotation are random
+        rand_index = random.randint(0, len(face_pc.points))
+        random_normal = np.array(face_pc.normals)[rand_index]
+        rotation_matrix = get_rotation_matrix(random_normal, -point_normal)
+        print(rotation_matrix)
+        print(Rotation.from_matrix(rotation_matrix))
+        print(Rotation.as_matrix(rotation_matrix))
+        rotate = np.eye(4)
+        # rotation_matrix = get_rotation_matrix(-point_normal, )
+        R = copy_finger.get_rotation_matrix_from_xyz(np.random.uniform(0,np.pi*2,3))
+        rotate[:3, :3] = R
+        
+
+        copy_rotate_face = copy.deepcopy(finger_face).transform(translate_to_center).transform(rotate)
+        copy_rotate_face_pc = mesh_to_point_cloud(copy_rotate_face)
+
+        random_point = random.choice(copy_rotate_face_pc.points)
+
+        translate_to_goal = np.eye(4)
+        translate_to_goal[:3, 3] = get_translation(random_point, point)
+        
+        transformation = np.matmul(translate_to_goal, np.matmul(rotate, translate_to_center))
+
+        final_face = copy.deepcopy(finger_face).transform(transformation)
+        final_mesh = copy.deepcopy(finger_mesh).transform(transformation)
+        final_mesh.paint_uniform_color(np.array([.5, .5, .9]))
+        final_pc = mesh_to_point_cloud(final_mesh)
+        final_face.paint_uniform_color(np.array([.5, .5, .9]))
+
+
+        poses.append(final_mesh)
+        T.append(transformation)
+        
+        visualisation = [finger_pc, finger_face, final_face, final_pc, point_goal]#, mesh_tr_pc]#, gripper_v]#, mesh_tr]
+        # o3d.visualization.draw_geometries(visualisation)
+
+    return poses, T
+
     return -1
+
+def get_rotation_matrix(vector_1, vector_2):
+    rotation_matrix = Rotation.align_vectors(np.array([vector_1]), np.array([vector_2]))
+    return rotation_matrix
 
 def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10):
     '''
@@ -282,7 +366,7 @@ def locomo_probability(X, Sigma, zero_moment_shift_error):
     # alternative definition from https://www.researchgate.net/profile/Maxime-Adjigble/publication/334440947_An_assisted_telemanipulation_approach_combining_autonomous_grasp_planning_with_haptic_cues/links/61d5712dd4500608168d77d8/An-assisted-telemanipulation-approach-combining-autonomous-grasp-planning-with-haptic-cues.pdf
 
     first_term = math.sqrt(math.pow(2*math.pi, 3) * np.linalg.det(Sigma))
-    second_term = multivariate_gaussian(X=zero_moment_shift_error, mu=np.zeros(3), Sigma=Sigma)
+    second_term = multivariate_gaussian_alt(X=zero_moment_shift_error, mu=np.zeros(3), Sigma=Sigma)
     return first_term*second_term
 
 # def mean_points(X):
@@ -318,19 +402,27 @@ def ranking(end_poses_prob, k, w):
 
 
 box = read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
+box = read_mesh("Boxes STLs/Mega Box - 4x4x12 - ww9a.stl")
+box = read_mesh("Boxes STLs/Labeled Divided Bin x2 - 1x3x6 - ZackFreedman.stl")
 box.translate([0, 0, 0], relative=False)
 
 gripper = read_mesh("Grasper_Locomo.STL")
 gripper.scale(300, center=box.get_center())
 gripper.translate([50, 5, -10])
-box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=1000)
+box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=800)
 
 
 
 gripper_simple = simplify_mesh(gripper, simplify_amount=7)
-
-
 gripper_pcd = mesh_to_point_cloud(mesh=gripper_simple, number_of_points=800)
-index = 0
 
-poses, transformation = LoCoMo(point_cloud=box_pcd, fingers_model=gripper_simple)
+
+print(np.min(np.array(box_pcd.points)[:,0]), "_", np.min(np.array(box_pcd.points)[:,1]), "_", np.min(np.array(box_pcd.points)[:,2]))
+
+print(np.max(np.array(box_pcd.points)[:,0]), "_", np.max(np.array(box_pcd.points)[:,1]), "_", np.max(np.array(box_pcd.points)[:,2]))
+
+poses, transformation = LoCoMo( point_cloud=box_pcd,
+            fingers_model=gripper_simple,
+            sphere_radius=.2,
+            poses_to_sample=10,
+            distance=5)
