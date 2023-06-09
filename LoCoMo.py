@@ -25,18 +25,15 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
     final_transformations = []
     poses_probabilities = []
     
-    print("amount of points in point cloud ", len(point_cloud.points))
     zero_moment_shifts = list(map(lambda x: zero_moment_shift(x, sphere_radius, np.asarray(point_cloud.points)), point_cloud.points))
 
     # Gripper model as triangular meshes
     finger_faces = get_tri_meshes(fingers_model)
-    print(len(finger_faces))
     # visualise_tri_faces(fingers_model)
     finger_faces = [finger_faces[i] for i in [2, 18, 20, 40]]
     # If use the following mesh of the gripper, the relevant faces for finger_face are  of index
     # 2, 18, 20, 40
     # mesh2 = read_mesh("Grasper_Locomo.STL")
-    # box_pcd = mesh_to_point_cloud(mesh=mesh2, number_of_points=10000)
     # mesh_simple = simplify_mesh(mesh2, simplify_amount=7)
     # mesh_tri = get_tri_meshes(mesh_simple)
 
@@ -44,12 +41,11 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
     # finger_model  -> could either be a mesh -> to be transformed to a list of triangle meshes to compute
     #               -> would be nice to find a way to split and get the relevant faces, not all of them
     #               -> a list of meshes constituing the whole finger model
-    for finger_face in finger_faces[0:2]:
-        for point in np.asarray(point_cloud.points)[0:2]:
-            poses, transformations = sample_finger_poses_random(point, finger_face, fingers_model, poses_to_sample)
+    for finger_face in finger_faces:
+        for point in np.asarray(point_cloud.points)[0:10]:
 
-            print(len(transformations))
-            for pose, t in zip(poses[0:2], transformations[0:2]):
+            poses, transformations = sample_finger_poses_random(point, finger_face, fingers_model, poses_to_sample)
+            for pose, t in zip(poses[0:5], transformations[0:5]):
                 gripper_transform = copy.deepcopy(fingers_model).transform(t)
 
                 o3d.visualization.draw_geometries([pose, gripper_transform, point_cloud])
@@ -71,7 +67,6 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
                     # Need to get the point cloud of the gripper/face on which the point is projected
                     # that are within a distance d from the point then compute the zms 
                     point = o3d.geometry.PointCloud(o3d.utility.Vector3dVector([projected_point]))
-                    # pose_pc = mesh_to_point_cloud(triangle_face)
                     pose_pc = mesh_to_point_cloud(pose, 1000)
                     points_within_d_gripper = select_within_distance_pc(pose_pc, point, distance)
 
@@ -111,7 +106,7 @@ def zero_moment_shift(sphere_center, sphere_radius=30, points=[]):
             = (1/N*(sum(points))) - sphere_center
     '''
     z = zero_moment(points_in_sphere(sphere_center, sphere_radius, points)) - sphere_center
-    print('sphere center ' , sphere_center, 'zero moment SHIFT ', z)
+    # print('sphere center ' , sphere_center, 'zero moment SHIFT ', z)
     return z
 
 def zero_moment(set_points):
@@ -204,7 +199,6 @@ def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10)
     finger_pc = mesh_to_point_cloud(finger_mesh)
     
     poses = []
-
     T = []
     for _ in range(amount_poses):
 
@@ -215,16 +209,11 @@ def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10)
         translate_to_center = np.eye(4)
         translate_to_center[:3, 3] = -center
         copy_finger = copy.deepcopy(finger_mesh).transform(translate_to_center)
-        copy_finger.paint_uniform_color(np.array([.3, .4, .6]))
-        copy_pc = mesh_to_point_cloud(copy_finger)
 
         rotate = np.eye(4)
-        print("rotate=", rotate)
         R = copy_finger.get_rotation_matrix_from_xyz(np.random.uniform(0,np.pi*2,3))
         rotate[:3, :3] = R
-        copy_rotate = copy.deepcopy(copy_finger).transform(rotate)
-        copy_rotate.paint_uniform_color(np.array([.7, .5, .6]))
-        copy_rotate_pc = mesh_to_point_cloud(copy_rotate)
+
 
         copy_rotate_face = copy.deepcopy(finger_face).transform(translate_to_center).transform(rotate)
         copy_rotate_face_pc = mesh_to_point_cloud(copy_rotate_face)
@@ -233,101 +222,21 @@ def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10)
 
         translate_to_goal = np.eye(4)
         translate_to_goal[:3, 3] = get_translation(random_point, point)
-        to_point = copy.deepcopy(copy_rotate).transform(translate_to_goal)
-        to_point.paint_uniform_color(np.array([.1, .7, .5]))
-        to_point_pc = mesh_to_point_cloud(to_point)
         
+        transformation = np.matmul(translate_to_goal, np.matmul(rotate, translate_to_center))
 
-        final_face = copy.deepcopy(finger_face).transform(translate_to_center).transform(rotate).transform(translate_to_goal)
-        final_face.paint_uniform_color(np.array([.9, .5, .5]))
-
-
-        visualisation = [finger_pc, finger_face, copy_pc, copy_rotate_pc, to_point_pc, final_face, point_goal]#, mesh_tr_pc]#, gripper_v]#, mesh_tr]
-        o3d.visualization.draw_geometries(visualisation)
-
-
-
-        mesh_r = copy.deepcopy(finger_face)
-        rotation = np.random.uniform(0,np.pi*2,3)
-        R = box.get_rotation_matrix_from_xyz(rotation)
-        mesh_r.rotate(R, center=finger_face.get_center())
-
-        # Sample a point cloud from the mesh - then choose a random point to translate to goal
-        point_cloud = mesh_to_point_cloud(mesh_r)
-        random_point = random.choice(point_cloud.points)
+        final_face = copy.deepcopy(finger_face).transform(transformation)
+        final_mesh = copy.deepcopy(finger_mesh).transform(transformation)
+        final_mesh.paint_uniform_color(np.array([.5, .5, .9]))
+        final_pc = mesh_to_point_cloud(final_mesh)
+        final_face.paint_uniform_color(np.array([.5, .5, .9]))
 
 
-        mesh_t = copy.deepcopy(mesh_r)
-        # Compute translation matrix from the Random point to the Goal point
-        translation_vector = get_translation(random_point, point)
-        mesh_t.translate(translation_vector, relative=True)
-
-        # Construct the transformation matrix that the face goes through
-        transformation = np.eye(4)
-        transformation[:3, :3] = rotation
-        
-        transformation[:3, 3] = get_translation(random_point, point)
-
-        poses.append(mesh_t)
+        poses.append(final_mesh)
         T.append(transformation)
-        print(transformation)
-
-        mesh_tr = copy.deepcopy(finger_mesh).transform(transformation)
-        # mesh_tr_pc = mesh_to_point_cloud(mesh_tr)
-
-        gripper_v = copy.deepcopy(finger_mesh)
-        gripper_v.paint_uniform_color(np.array([.7, .7, .8]))
-        finger_face.paint_uniform_color(np.array([.2, .3, .6]))
-
-        pc = mesh_to_point_cloud(finger_mesh)
-
-
-        attempt_t = copy.deepcopy(finger_face).transform(transformation)
-
-
-        simple_transformation = np.eye(4)
-        # simple_transformation[:3, :3] = [   [ 1, 2, 3],
-        #                                     [ 1, 2, 3],
-        #                                     [ 1, 2, 3]]
-        simple_transformation[:3, :3] = R
-        print(R)
-        print("------------")
-
-        intermediate_face = copy.deepcopy(finger_face).transform(simple_transformation)
-        intermediate_mesh = copy.deepcopy(finger_mesh).transform(simple_transformation)
-        intermediate_face.paint_uniform_color(np.array([.4, .6, .01]))
-        intermediate_mesh.paint_uniform_color(np.array([.7, .9, .3]))
-
-        # intermediate_face.paint_uniform_color(np.array[[.6, .8, .2]])
-        # .paint_uniform_color(np.array[[.7, .9, .3]])
-        intermediate_pc = mesh_to_point_cloud(intermediate_mesh)
-
-        # intermediate_face = copy.deepcopy(finger_face).transform(simple_transformation)
-
-        last_col = [np.dot(translation_vector, R[i, :]) for i in range(3)]
-        last_col.append(1)
-        print(last_col)
-        simple_transformation[:, 3] = last_col
-        print('sipmle')
-        print(simple_transformation)
-
-
-        simple_t = copy.deepcopy(finger_face).transform(simple_transformation)
-        simple_mesh = copy.deepcopy(finger_mesh).transform(simple_transformation)
-        simple_t.paint_uniform_color(np.array([.7, .5, .4]))
-        # simple_t.paint_uniform_color(np.array([.9, .7, .6]))
-
-        simple_mesh.paint_uniform_color(np.array([.9, .7, .6]))
-        simple_pc = mesh_to_point_cloud(simple_mesh)
-        # simple = copy.deepcopy(finger_mesh)
-        print(np.array(mesh_t.vertices), '  vs  ', np.array(simple_t.vertices))
-        # visualisation = [point_goal, finger_face, pc, mesh_t, simple_t, simple_pc, intermediate_pc, intermediate_face]#, mesh_tr_pc]#, gripper_v]#, mesh_tr]
+        
+        visualisation = [finger_pc, finger_face, final_face, final_pc, point_goal]#, mesh_tr_pc]#, gripper_v]#, mesh_tr]
         # o3d.visualization.draw_geometries(visualisation)
-
-
-
-    
-    # visualisation.extend(poses)
 
     return poses, T
 
@@ -408,82 +317,20 @@ def ranking(end_poses_prob, k, w):
     return k*np.dot(end_poses_prob, w)
 
 
-def plotting(points, p=1):
-    # To improve to visualize the results
-    p0, p1, p2 = points
-    x0, y0, z0 = p0
-    x1, y1, z1 = p1
-    x2, y2, z2 = p2
-
-    ux, uy, uz = u = [x1-x0, y1-y0, z1-z0]
-    vx, vy, vz = v = [x2-x0, y2-y0, z2-z0]
-
-    u_cross_v = [uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx]
-
-    point  = np.array(p0)
-    normal = np.array(u_cross_v)
-    
-    print("normal= ", normal)
-
-#     d = -point.dot(normal)
-
-#     xx, yy = np.meshgrid(range(10), range(10))
-
-#     z = (-normal[0] * xx - normal[1] * yy - d) * 1. / normal[2]
-
-#     # plot the surface
-#     fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-#     # Plot the surface.
-#     surf = ax.plot_surface(xx, yy, z, cmap=cm.coolwarm,
-#                        linewidth=0, antialiased=False)
-#     plt.show()
-
-# points = [[1, 2, 3], 
-#           [4 ,5, 9],
-#           [12, 2, 56], 
-#           [7, 3, 7],
-#           [19, 65, 4]]
-# m, c = mean_covariance_points(points)
-# print(c)
-# print(np.mean(points, axis=1))
-# mesh = read_mesh("Grasper_RG6.STL")
-# point_cloud = mesh_to_point_cloud(mesh, 1000)
-# print(np.mean(np.asarray(point_cloud.points), axis=0))
-# print('min ', np.min(np.asarray(point_cloud.points), axis=0))
-# print('max ', np.max(np.asarray(point_cloud.points), axis=0))
-
 box = read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
 box.translate([0, 0, 0], relative=False)
 
 gripper = read_mesh("Grasper_Locomo.STL")
 gripper.scale(300, center=box.get_center())
 gripper.translate([50, 5, -10])
-box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=800)
+box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=1000)
 
 
 
-# mesh2 = read_mesh("Grasper_Locomo.STL")
 gripper_simple = simplify_mesh(gripper, simplify_amount=7)
 
 
 gripper_pcd = mesh_to_point_cloud(mesh=gripper_simple, number_of_points=800)
+index = 0
+
 poses, transformation = LoCoMo(point_cloud=box_pcd, fingers_model=gripper_simple)
-print('transformation')
-
-print(transformation)
-
-for pose, t in zip(poses, transformation):
-    mesh_transformed = copy.deepcopy(gripper_simple).transform(t)
-    pc_transformed = mesh_to_point_cloud(mesh_transformed, number_of_points=800)
-    # o3d.visualization.draw_geometries([mesh_transformed, pc_transformed, box_pcd, pose])
-
-# mesh = read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
-# n = only_points_from_mesh(mesh)
-# print(n)
-# mesh = read_mesh("Grasper_Locomo.STL")
-
-# points = only_points_from_mesh(mesh)
-# o3d.visualization.draw_geometries([points])
-# sample_finger_poses_random([2, 2, 1], mesh)
-
-# points_in_sphere(sphere_center=[0, 0, 0], sphere_radius=5, points=[[1, 2, 3], [3, 2, 3], [6, 5, 6], [7, 6, 8]])
