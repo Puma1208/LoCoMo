@@ -92,9 +92,9 @@ def simplify_mesh(mesh, simplify_amount=8, color=[.5, 0.706, 0.8]):
     mesh_smp = mesh.simplify_vertex_clustering(
         voxel_size=voxel_size,
         contraction=o3d.geometry.SimplificationContraction.Average)
-    print(
-        f'Simplified mesh has {len(mesh_smp.vertices)} vertices and {len(mesh_smp.triangles)} triangles'
-    )
+    # print(
+    #     f'Simplified mesh has {len(mesh_smp.vertices)} vertices and {len(mesh_smp.triangles)} triangles'
+    # )
     mesh_smp.paint_uniform_color(color)
 
     # o3d.visualization.draw_geometries([mesh_smp])
