@@ -12,15 +12,59 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from scipy.stats import multivariate_normal
 from scipy.spatial.transform import Rotation
+from typing import List
 
 # EPSILON = sys.float_info.epsilon
 EPSILON = 0.1
 
-def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
+def LoCoMo_remastered(  object_point_cloud: o3d.cpu.pybind.geometry.PointCloud,
+                        fingers_model: o3d.cpu.pybind.geometry.TriangleMesh,
+                        faces_models: List[o3d.cpu.pybind.geometry.TriangleMesh],
+                        sphere_radius: float=10,
+                        poses_to_sample: int=10,
+                        distance: float=2):
+    
+    zero_moment_shifts = list(map(lambda x: zero_moment_shift(x, sphere_radius, np.asarray(object_point_cloud.points)), object_point_cloud.points))
+
+    # Gripper model as triangular meshes
+    finger_faces = get_tri_meshes(fingers_model)
+    # visualise_tri_faces(fingers_model)
+    # finger_faces = [finger_faces[i] for i in [6, 4, 10, 35]]
+
+    for finger_face in faces_models:
+        
+        for point in object_point_cloud.points[:1]:
+            poses, transformations, faces_oriented = sample_finger_poses_random(point, finger_face, fingers_model, poses_to_sample)
+            for face_pose in faces_oriented[:1]:
+                points_within_d = select_within_distance(face_pose, object_point_cloud, distance)
+
+                pose_pc = mesh_to_point_cloud(poses[faces_oriented.index(face_pose)])
+                vis_points = []
+                for point_d in points_within_d:
+                    sphere = o3d.geometry.TriangleMesh.create_sphere()
+                    sphere.paint_uniform_color(np.array([.5, .5, .9]))
+                    sphere.translate(np.array(point), relative=False)
+                    vis_points.append(sphere)
+
+                vis_points.append(pose_pc)
+                vis_points.append(face_pose)
+
+                s = o3d.geometry.TriangleMesh.create_sphere(sphere_radius)
+                s.paint_uniform_color(np.array([.5, .5, .1]))
+                s.translate(np.array(point), relative=False)
+                vis_points.append(s)
+
+                o3d.visualization.draw_geometries(vis_points)
+
+
+    print()
+
+def LoCoMo( object_point_cloud: o3d.cpu.pybind.geometry.PointCloud,
             fingers_model: o3d.cpu.pybind.geometry.TriangleMesh,
+            faces_models: List[o3d.cpu.pybind.geometry.TriangleMesh],
             sphere_radius: float=5,
             poses_to_sample: int=10,
-            distance: float=5):
+            distance: float=2):
     # Compute surface normal at each point in the point cloud
     final_poses = []
     final_transformations = []
@@ -30,12 +74,9 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
     
     # points_normals = {np.array(p): normal for p, normal in zip(point_cloud.points, point_cloud.normals)}
     
-
-    print()
-    print(np.where(np.all(np.array(point_cloud.points) ==np.array([ 0.60023875, 12.41004326, -3.91415663]), axis=1)))
     # for point in point_cloud.points:
     #     print(point)
-    zero_moment_shifts = list(map(lambda x: zero_moment_shift(x, sphere_radius, np.asarray(point_cloud.points)), point_cloud.points))
+    zero_moment_shifts = list(map(lambda x: zero_moment_shift(x, sphere_radius, np.asarray(object_point_cloud.points)), object_point_cloud.points))
 
     # Gripper model as triangular meshes
     finger_faces = get_tri_meshes(fingers_model)
@@ -47,36 +88,44 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
     # mesh_simple = simplify_mesh(mesh2, simplify_amount=7)
     # mesh_tri = get_tri_meshes(mesh_simple)
 
+    gripper_pcd = mesh_to_point_cloud(fingers_model)
 
-    # finger_model  -> could either be a mesh -> to be transformed to a list of triangle meshes to compute
-    #               -> would be nice to find a way to split and get the relevant faces, not all of them
-    #               -> a list of meshes constituing the whole finger model
-
-    # for pt, normal in zip(point_cloud.points, point_cloud.normals):
-        # print("     ", pt, "___", normal)
 
     # points_normals = {key: value for key, value in x}
-    for finger_face in finger_faces:
-        for (p, normal, zero_moment) in zip(point_cloud.points[0:10], point_cloud.normals[0:10], zero_moment_shifts[0:10]):
+    for finger_face in faces_models:
+        print('finger face = ', finger_face)
+
+        for (p, normal, zero_moment) in zip(object_point_cloud.points[:1], object_point_cloud.normals[:1], zero_moment_shifts[:1]):
+            # print('     point = ', p)
             # print('normal ', p.normal)
-            projected_pc = np.asarray(p)
-            poses, transformations = sample_finger_poses_opposite(projected_pc, normal, finger_face, fingers_model, poses_to_sample)
-            # poses, transformations = sample_finger_poses_random(projected_pc, finger_face, fingers_model, poses_to_sample)
-
             
-            for pose, t in zip(poses[0:5], transformations[0:5]):
+
+            projected_pc = np.asarray(p)
+            # poses, transformations = sample_finger_poses_opposite(projected_pc, normal, finger_face, fingers_model, poses_to_sample)
+            poses, transformations, faces_oriented = sample_finger_poses_random(projected_pc, finger_face, fingers_model, poses_to_sample)
+
+
+            for pose, t, f in zip(poses[:1], transformations[:1], faces_oriented[:1]):
+
                 gripper_transform = copy.deepcopy(fingers_model).transform(t)
-
-                o3d.visualization.draw_geometries([pose, gripper_transform, point_cloud])
-
 
                 # TODO: find a way to get the faces of the mesh
                 # simplify the mesh of the finger model and for each face compute the following
-                points_within_d = select_within_distance(pose, point_cloud, distance)
+                points_within_d = select_within_distance(pose, object_point_cloud, distance)
                 locomo_prob = []
-                for point_to_project in points_within_d[0:2]:
-                    # TODO maybe the zero moment shifts to be computed are of the original point and its projection
-                    projected_point = project_point_on_surface(pose, point_to_project)
+                vis_points = []
+                pose_pc = mesh_to_point_cloud(pose)
+
+                vis_points.append(pose_pc)
+                vis_points.append(f)
+                o3d.visualization.draw_geometries(vis_points)
+                for point_to_project in points_within_d:
+                    
+                    
+                    # projected_point = project_point_on_surface(f, point_to_project)
+                    projected_point = point_to_project
+
+                    
                     # Compute the Local Contact Probabilty
                     # TODO when computing the error -> does the zero moment between the gripper and the object
                     # mean that they are correlated somehow???
@@ -93,30 +142,40 @@ def LoCoMo( point_cloud: o3d.cpu.pybind.geometry.PointCloud,
                     n_2 = zero_moment_shift(sphere_center=projected_point, sphere_radius=sphere_radius, points=points_within_d_gripper)
                     # Error between the 2 zero-shift vectors
                     # TODO figure out whether the computed zero moment shifts at the beginning should be used here
-                    zms_error = zero_moment - n_1
+                    zms_error = n_1 - zero_moment
                     # points_within_d = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points_within_d))
                     # mu, Sigma = points_within_d.compute_mean_and_covariance()
-                    mu, Sigma = mean_covariance_points(points_within_d)
-                    # print(mu, Sigma)
-                    locomo_prob.append(locomo_probability(X=projected_point, Sigma=Sigma, zero_moment_shift_error=zms_error))
-                    # print('locomo probability ', locomo_probability)
-                poses_probabilities.append(np.mean(np.array(locomo_prob)))
-                final_poses.append(pose)
-                final_transformations.append(t)
+                    # mu, Sigma = mean_covariance_points(points_within_d)
+                    if len(points_within_d) > 2:
+                        Sigma = np.cov(points_within_d, rowvar=False)
+
+                        print("shape = ", (Sigma))
+                        if np.linalg.det(Sigma) > 0:
+
+                            # print(mu, Sigma)
+                            locomo_prob.append(locomo_probability(X=projected_point, Sigma=Sigma, zero_moment_shift_error=zms_error, points=np.array(object_point_cloud.points)))
+                            # print('locomo probability ', locomo_probability)
+                            poses_probabilities.append(np.mean(np.array(locomo_prob)))
+                            final_poses.append(pose)
+                            final_transformations.append(t)
 
     # # Among the poses find those that satisfy kinematic constraint of the gripper
     # for pose in final_poses:
         # Compute the ranking metric
-    print('prob=', (poses_probabilities))
+    print('prob=', sorted(poses_probabilities))
 
     print(np.ones(len(poses_probabilities))/len(poses_probabilities))
     R = ranking(poses_probabilities, k=1, w=np.ones(len(poses_probabilities))/len(poses_probabilities))
-    print(R)
+    print('R=',R)
+
     # Sort end poses in decreasing order depending on R
     # Sample gripper pose from end_poses_sorted
     # Return top grasp poses
-    
-    return final_poses, final_transformations
+    sorted_indeces = np.argsort(R)
+    final_poses_sorted = np.array(final_poses)[sorted_indeces]
+    final_transformations_sorted = np.array(final_transformations)[sorted_indeces]
+
+    return final_poses_sorted, final_transformations_sorted
 
 
 def zero_moment_shift(sphere_center, sphere_radius=30, points=[]):
@@ -126,7 +185,7 @@ def zero_moment_shift(sphere_center, sphere_radius=30, points=[]):
             = (1/N*(sum(points))) - sphere_center
     '''
     z = zero_moment(points_in_sphere(sphere_center, sphere_radius, points)) - sphere_center
-    # print('sphere center ' , sphere_center, 'zero moment SHIFT ', z)
+    print('sphere center ' , sphere_center, 'zero moment SHIFT ', z)
     return z
 
 def zero_moment(set_points):
@@ -142,10 +201,7 @@ def distance(point_1, point_2):
     '''
     Compute the distance between 2 points in 3D
     '''
-    sum = 0
-    for coord_1, coord_2 in zip(point_1, point_2):
-        sum += (coord_1-coord_2)**2
-    distance = math.sqrt(sum)
+    distance = np.sqrt(np.sum((point_1-point_2)**2, axis=0))
     return distance
 
 
@@ -168,9 +224,10 @@ def points_in_sphere(sphere_center, sphere_radius, points):
     # Compute the distances between the set of points and the sphere center
     distances = list(map(lambda x: distance(x, sphere_center), points))
     distances = np.array(distances)
+    print("distances = ", distances)
     points_sphere = np.array(points)
     points_sphere = points_sphere[np.abs(distances)<=sphere_radius] 
-    # print('points  in sphere', len(points_sphere))
+    print('points  in sphere', len(points_sphere))
     return points_sphere
 
 
@@ -268,6 +325,8 @@ def get_rotation_matrix(vector_1, vector_2):
 def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10):
     '''
     Return the rotation matrix
+
+    No need to project the point after
     '''
     # Basically take any point from the gripper model and put it at the same position as the selected point in the point cloud
     # - Rotate around the center of the object
@@ -283,6 +342,7 @@ def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10)
     finger_pc = mesh_to_point_cloud(finger_mesh)
     
     poses = []
+    faces = []
     T = []
     for _ in range(amount_poses):
 
@@ -317,12 +377,13 @@ def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10)
 
 
         poses.append(final_mesh)
+        faces.append(final_face)
         T.append(transformation)
         
         visualisation = [finger_pc, finger_face, final_face, final_pc, point_goal]#, mesh_tr_pc]#, gripper_v]#, mesh_tr]
         # o3d.visualization.draw_geometries(visualisation)
 
-    return poses, T
+    return poses, T, faces
 
 def get_translation(point_from, point_to):
     if len(point_to)==len(point_from):
@@ -356,7 +417,7 @@ def project_point_on_surface(mesh_surface:o3d.cpu.pybind.geometry.TriangleMesh,
     point_projected = plane.project_point(point)
     return point_projected
 
-def locomo_probability(X, Sigma, zero_moment_shift_error):
+def locomo_probability(X, Sigma, zero_moment_shift_error, points):
     # mvg_1  = multivariate_gaussian(X=X, mu=np.zeros(3), Sigma=Sigma)
     # mvg_2 = multivariate_gaussian(X=zero_moment_shift_error, mu=np.zeros(3), Sigma=Sigma)
     # print('mvg_1', mvg_1)
@@ -364,29 +425,42 @@ def locomo_probability(X, Sigma, zero_moment_shift_error):
     # num = np.max(X, mvg_1)-mvg_2
 
     # alternative definition from https://www.researchgate.net/profile/Maxime-Adjigble/publication/334440947_An_assisted_telemanipulation_approach_combining_autonomous_grasp_planning_with_haptic_cues/links/61d5712dd4500608168d77d8/An-assisted-telemanipulation-approach-combining-autonomous-grasp-planning-with-haptic-cues.pdf
+    first_term = 0
 
-    first_term = math.sqrt(math.pow(2*math.pi, 3) * np.linalg.det(Sigma))
-    second_term = multivariate_gaussian_alt(X=zero_moment_shift_error, mu=np.zeros(3), Sigma=Sigma)
+    if np.linalg.det(Sigma) > 0:
+            det = np.linalg.det(Sigma)
+            power = math.pow(2*math.pi, 3) 
+            first_term = math.sqrt(power*det)
+    # second_term = multivariate_gaussian(X=zero_moment_shift_error, mu=np.zeros(3), Sigma=Sigma)
+    second_term = multivariate_gaussian(zero_moment_shift_error, np.zeros(3), Sigma)
+    if (first_term*second_term)>1:
+        print("     locomo probability ", first_term, '*', second_term, '=', (first_term*second_term))
     return first_term*second_term
-
-# def mean_points(X):
-#     return np.mean(X, axis=0)
-
-# def sigma(X):
-#     '''
-#     Return the covariance matrix of the 3d points 
-#     '''
 
 def multivariate_gaussian(X, mu, Sigma):
-    first_term = 1/(math.sqrt(math.pow(2*math.pi, 3) * np.linalg.det(Sigma)))
-    diff = np.array(X-mu)
-    matrices_mult = np.matmul(np.matmul(diff.transpose(), Sigma), diff)
-    second_term = math.exp((-1/2)*matrices_mult)
-    return first_term*second_term
+    if np.linalg.det(Sigma) > 0:
+        det = np.linalg.det(Sigma)
+        power = math.pow(2*math.pi, 3) 
+        sqrt = math.sqrt(power*det)
+            
+        first_term = 1/sqrt
+        # first_term = 1/(math.sqrt(math.pow(2*math.pi, 3) * np.linalg.det(Sigma)))
 
-def multivariate_gaussian_alt(X, mu, Sigma):
-    multi_variate_gaussian = multivariate_normal(mean=mu, cov=Sigma)
-    return multi_variate_gaussian.pdf(X)
+        diff = np.array(X-mu)
+        matrices_mult = np.matmul(np.matmul(diff.transpose(), Sigma), diff)
+        second_term = math.exp((-1/2)*matrices_mult)
+        return first_term*second_term
+    return 0
+
+# def multivariate_gaussian_alt(points, X):
+#     Sigma = np.cov(points, rowvar=False)
+
+#     multi_variate_gaussian = multivariate_normal(mean=np.mean(points), cov=Sigma)
+#     return multi_variate_gaussian.pdf(X)
+
+# def multi_variate_gaussian(X):
+#     print("__________", multivariate_normal.pdf(X, mean=None, cov=1))
+#     return multivariate_normal.pdf(X, mean=None, cov=1)
 
 def mean_covariance_points(X):
     '''3D point coordinates'''
@@ -398,7 +472,9 @@ def ranking(end_poses_prob, k, w):
     k = normalizing term
     w = weights satisfying w[0]+w[1]+...+w[-1] = 1
     '''
-    return k*np.dot(end_poses_prob, w)
+    print("k=", k)
+    print("dot=", np.multiply(end_poses_prob, w))
+    return k*np.multiply(end_poses_prob, w)
 
 
 box = read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
@@ -409,20 +485,52 @@ box.translate([0, 0, 0], relative=False)
 gripper = read_mesh("Grasper_Locomo.STL")
 gripper.scale(300, center=box.get_center())
 gripper.translate([50, 5, -10])
-box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=800)
-
+pc = mesh_to_point_cloud(gripper)
+box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=500)
 
 
 gripper_simple = simplify_mesh(gripper, simplify_amount=7)
 gripper_pcd = mesh_to_point_cloud(mesh=gripper_simple, number_of_points=800)
 
 
-print(np.min(np.array(box_pcd.points)[:,0]), "_", np.min(np.array(box_pcd.points)[:,1]), "_", np.min(np.array(box_pcd.points)[:,2]))
+# print(np.min(np.array(box_pcd.points)[:,0]), "_", np.min(np.array(box_pcd.points)[:,1]), "_", np.min(np.array(box_pcd.points)[:,2]))
 
-print(np.max(np.array(box_pcd.points)[:,0]), "_", np.max(np.array(box_pcd.points)[:,1]), "_", np.max(np.array(box_pcd.points)[:,2]))
+# print(np.max(np.array(box_pcd.points)[:,0]), "_", np.max(np.array(box_pcd.points)[:,1]), "_", np.max(np.array(box_pcd.points)[:,2]))
 
-poses, transformation = LoCoMo( point_cloud=box_pcd,
+mesh2 = read_mesh("Grasper_Locomo.STL")
+mesh_simple = simplify_mesh(mesh2, simplify_amount=7)
+mesh_tri = get_tri_meshes(mesh_simple)
+mesh_pc = mesh_to_point_cloud(mesh_simple)
+
+
+gr = read_mesh('Gripper/Grasper_Locomo_scaled.stl')
+gr_pc = mesh_to_point_cloud(gr)
+gr_tr = get_tri_meshes(gr)
+print(gr_tr)
+# o3d.visualization.draw_geometries([gr_pc])
+# o3d.visualization.draw_geometries([gr_pc, read_mesh("Gripper/face5.stl"), read_mesh("Gripper/face6.stl"), read_mesh("Gripper/face10.stl"), read_mesh("Gripper/face13.stl")])
+faces_models = [read_mesh("Gripper/face5.stl"), read_mesh("Gripper/face6.stl"), read_mesh("Gripper/face10.stl"), read_mesh("Gripper/face13.stl")]
+poses, transformation = LoCoMo_remastered( object_point_cloud=box_pcd,
             fingers_model=gripper_simple,
-            sphere_radius=.2,
+            faces_models=faces_models,
+            sphere_radius=5,
             poses_to_sample=10,
             distance=5)
+
+# face5=[[0.06  0.016 0.055]
+#  [0.06  0.016 0.025]
+#  [0.    0.016 0.025]]
+
+# face6 = [[0.06  0.016 0.055]
+#  [0.    0.016 0.025]
+#  [0.    0.016 0.055]]
+
+# face10 = [[0.06  0.096 0.025]
+#  [0.    0.096 0.055]
+#  [0.    0.096 0.025]]
+
+# face13 = [[0.06  0.096 0.055]
+#  [0.    0.096 0.055]
+#  [0.06  0.096 0.025]]
+
+# for index in faces_index:
