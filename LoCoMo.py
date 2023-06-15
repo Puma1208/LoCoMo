@@ -25,21 +25,26 @@ def LoCoMo_remastered(  object_point_cloud: o3d.cpu.pybind.geometry.PointCloud,
                         distance: float=20):
     
 
-    transformations = []
-    poses = []
+    final_transformations = []
+    final_poses = []
     locomo_probabilities = []
     
     zero_moment_shifts = list(map(lambda x: zero_moment_shift(x, sphere_radius, np.asarray(object_point_cloud.points)), object_point_cloud.points))
 
     for finger_face in faces_models:
-        
-        for point in object_point_cloud.points[:1]:
+        print('face=', finger_face)
+        p = 0
+        for point in object_point_cloud.points[10:20]:
             poses, transformations, faces_oriented = sample_finger_poses_random(point, finger_face, fingers_model, poses_to_sample)
-            for pose, t, face_pose in zip(poses[:1], transformations[:1], faces_oriented[:1]):
+
+            print('     point=', p, '/', len(object_point_cloud.points))
+            p +=1
+            for pose, t, face_pose in zip(poses[:10], transformations[:10], faces_oriented[:10]):
                 points_within_d = select_within_distance(face_pose, object_point_cloud, distance)
 
                 locomo_prob = []
-                
+                # print('         pose=', pose)
+
 
                 for point_d in points_within_d:
 
@@ -49,23 +54,29 @@ def LoCoMo_remastered(  object_point_cloud: o3d.cpu.pybind.geometry.PointCloud,
                     projected_point = project_point_on_surface(face_pose, point_d)
                     zms2 = zero_moment_shift(sphere_center=projected_point, sphere_radius=sphere_radius, points=object_point_cloud.points)
                     error = zms1 - zms2
-                    Sigma = np.cov(points_within_d, rowvar=False)
 
+                    if len(points_within_d)>2:
+                        Sigma = np.cov(points_within_d, rowvar=False)
 
-                    if np.linalg.det(Sigma) > 0:
-                        locomo = locomo_probability_remastered(X=error, mu=np.zeros(3), Sigma=Sigma)
-                        if not math.isnan(locomo):
-                            locomo_prob.append(locomo)
-                locomo_probabilities.append(np.mean(np.array(locomo_prob)))
-                poses.append(pose)
-                transformations.append(t)
+                        if np.linalg.det(Sigma) > 0:
+                            locomo = locomo_probability_remastered(X=error, mu=np.zeros(3), Sigma=Sigma)
+                            if not math.isnan(locomo):
+                                locomo_prob.append(locomo)
+                if len(locomo_prob)>0:
+                    print('___________', np.mean(np.array(locomo_prob)))
+
+                    locomo_probabilities.append(np.mean(np.array(locomo_prob)))
+                    final_poses.append(pose)
+                    final_transformations.append(t)
+                    print(len(locomo_probabilities), ' _ ', len(final_poses), '_ ', len(final_transformations))
+
 
     # Filter poses satisfying kinematics
     R = ranking(locomo_probabilities, k=1, w=np.ones(len(locomo_probabilities))/len(locomo_probabilities))
     sorted_indeces = np.argsort(locomo_probabilities)  
     locomo_probabilities = np.array(locomo_probabilities)[sorted_indeces]
-    final_poses_sorted = np.array(poses)[sorted_indeces]
-    final_transformations_sorted = np.array(transformations)[sorted_indeces]
+    final_poses_sorted = np.array(final_poses)[sorted_indeces]
+    final_transformations_sorted = np.array(final_transformations)[sorted_indeces]
 
     return final_poses_sorted, final_transformations_sorted, locomo_probabilities
 
@@ -360,7 +371,7 @@ gripper = read_mesh("Grasper_Locomo.STL")
 gripper.scale(300, center=box.get_center())
 gripper.translate([50, 5, -10])
 pc = mesh_to_point_cloud(gripper)
-box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=800)
+box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=500)
 
 
 gripper_simple = simplify_mesh(gripper, simplify_amount=7)
@@ -369,7 +380,7 @@ faces_models = [read_mesh("Gripper/face5.stl"), read_mesh("Gripper/face6.stl"), 
 poses, transformation, locomo_prob = LoCoMo_remastered( object_point_cloud=box_pcd,
             fingers_model=gripper_simple,
             faces_models=faces_models,
-            sphere_radius=10,
+            sphere_radius=15,
             poses_to_sample=10,
             distance=5)
 
