@@ -63,12 +63,9 @@ def LoCoMo_remastered(  object_point_cloud: o3d.cpu.pybind.geometry.PointCloud,
                             if not math.isnan(locomo):
                                 locomo_prob.append(locomo)
                 if len(locomo_prob)>0:
-                    print('___________', np.mean(np.array(locomo_prob)))
-
                     locomo_probabilities.append(np.mean(np.array(locomo_prob)))
                     final_poses.append(pose)
                     final_transformations.append(t)
-                    print(len(locomo_probabilities), ' _ ', len(final_poses), '_ ', len(final_transformations))
 
 
     # Filter poses satisfying kinematics
@@ -366,26 +363,30 @@ box = read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
 box = read_mesh("Boxes STLs/Mega Box - 4x4x12 - ww9a.stl")
 box = read_mesh("Boxes STLs/Labeled Divided Bin x2 - 1x3x6 - ZackFreedman.stl")
 box.translate([0, 0, 0], relative=False)
-
-gripper = read_mesh("Grasper_Locomo.STL")
-gripper.scale(300, center=box.get_center())
-gripper.translate([50, 5, -10])
-pc = mesh_to_point_cloud(gripper)
 box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=500)
+
+
+# gripper = read_mesh("Grasper_Locomo.STL")
+# gripper.scale(300, center=box.get_center())
+# gripper.translate([50, 5, -10])
+gripper = read_mesh("/Gripper/Grasper_Locomo_scaled.stl")
+
 
 
 gripper_simple = simplify_mesh(gripper, simplify_amount=7)
 
+print(gripper.get_center())
+
 faces_models = [read_mesh("Gripper/face5.stl"), read_mesh("Gripper/face6.stl"), read_mesh("Gripper/face10.stl"), read_mesh("Gripper/face13.stl")]
-poses, transformation, locomo_prob = LoCoMo_remastered( object_point_cloud=box_pcd,
-            fingers_model=gripper_simple,
-            faces_models=faces_models,
-            sphere_radius=15,
-            poses_to_sample=10,
-            distance=5)
+# poses, transformation, locomo_prob = LoCoMo_remastered( object_point_cloud=box_pcd,
+#             fingers_model=gripper_simple,
+#             faces_models=faces_models,
+#             sphere_radius=15,
+#             poses_to_sample=10,
+#             distance=5)
 
 
-print(len(poses))
-print('probabilities sorted ', locomo_prob)
-for pose, prob in zip(poses, locomo_prob):
-    o3d.visualization.draw_geometries([pose, box_pcd], ('locomo=' + str(prob)))
+# print(len(poses))
+# print('probabilities sorted ', locomo_prob)
+# for pose, prob in zip(poses, locomo_prob):
+#     o3d.visualization.draw_geometries([pose, box_pcd], ('locomo=' + str(prob)))
