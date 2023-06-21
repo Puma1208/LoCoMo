@@ -37,13 +37,13 @@ def LoCoMo_remastered(  sampling_method,
     for finger_face in faces_models:
         print('face=', finger_face)
         p = 0
-        for point in random.sample(list(object_point_cloud.points), 2):
+        for point in list(object_point_cloud.points):
             poses, transformations, faces_oriented = sampling_method(point, finger_face, fingers_model, poses_to_sample)
 
             print('     point=', p, '/', len(object_point_cloud.points))
             p +=1
-            for pose, t, face_pose in zip(poses[:2], transformations[:2], faces_oriented[:2]):
-                points_within_d = select_within_distance(face_pose, object_point_cloud, sphere_radius )
+            for pose, t, face_pose in zip(poses, transformations, faces_oriented):
+                points_within_d = select_within_distance(face_pose, object_point_cloud, distance)
 
                 locomo_prob = []
 
@@ -382,6 +382,15 @@ def ranking(end_poses_prob, k, w):
     '''
     return k*np.multiply(end_poses_prob, w)
 
+gripper = read_mesh("Grasper_Locomo.STL")
+gripper.translate((0, 0, 0), relative=False)
+gripper.scale(300, center=gripper.get_center())
+pc = mesh_to_point_cloud(gripper)
+# o3d.io.write_triangle_mesh('attempt.STL', gripper, write_ascii=False, compressed=False, write_vertex_normals=True, write_vertex_colors=True, write_triangle_uvs=False, print_progress=True)
+gripper2 = read_mesh("grasper_scaled.STL")
+
+# o3d.visualization.draw_geometries([pc, gripper2])
+
 # o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
 # box = read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
 # box = read_mesh("Boxes STLs/Mega Box - 4x4x12 - ww9a.stl")
@@ -391,27 +400,6 @@ def ranking(end_poses_prob, k, w):
 # sphere = o3d.geometry.TriangleMesh.create_sphere(10)
 # sphere.paint_uniform_color(np.array([.5, .5, .9]))
 # sphere.translate(np.array([0, 0, 0]), relative=False)
-# o3d.visualization.draw_geometries([box_pcd, sphere])
-
-
-
-# gripper = read_mesh("Grasper_Locomo.STL")
-# gripper.scale(300, center=box.get_center())
-# gripper.translate([50, 5, -10])
-# # gripper = read_mesh("/Gripper/Grasper_Locomo_scaled.STL")
-
-
-# # scene_pc = read_point_cloud("DatasetImages/blueStorageBox/25_blueStorageBox.ply")
-# # gripper.scale(1000000, center=scene_pc.get_center())
-
-# # gripper_simple = simplify_mesh(gripper, simplify_amount=7)
-
-# face1 = read_mesh("Gripper/face5.stl")
-# face2 = read_mesh("Gripper/face6.stl")
-# face3 = read_mesh("Gripper/face10.stl")
-# face4 = read_mesh("Gripper/face13.stl")
-
-# faces_models = [face1, face2, face3, face4]
 
 
 # print(len(poses))

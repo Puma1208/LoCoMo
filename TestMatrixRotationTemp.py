@@ -34,3 +34,6 @@ r = Rotation.from_matrix(rotation)
 angles = r.as_euler('xyz', degrees=False)
 
 print('Rotation angles = ', angles)
+
+# def rotate_to_vector():
+    
