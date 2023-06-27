@@ -24,7 +24,7 @@ def LoCoMo_remastered(  sampling_method,
                         faces_models: List[o3d.cpu.pybind.geometry.TriangleMesh],
                         sphere_radius: float=10,
                         poses_to_sample: int=10,
-                        distance: float=10,
+                        distance: float=10
                         ):
     
     print('soo')
@@ -42,12 +42,16 @@ def LoCoMo_remastered(  sampling_method,
 
             print('     point=', p, '/', len(object_point_cloud.points))
             p +=1
+            normalizing_factor = 0 
+
             for pose, t, face_pose in zip(poses, transformations, faces_oriented):
                 points_within_d = select_within_distance(face_pose, object_point_cloud, distance)
-
+                n_points = len(points_within_d)
+                if n_points>normalizing_factor:
+                    normalizing_factor = n_points
                 locomo_prob = []
 
-                for point_d in points_within_d:
+                for point_d in points_within_d[:round(len(points_within_d)/4)]:
                     point_index = np.where(np.all(np.array(object_point_cloud.points) == (point_d), axis=1))
                     zms1 = zero_moment_shifts[point_index[0][0]]
 
@@ -78,10 +82,12 @@ def LoCoMo_remastered(  sampling_method,
                             try:
                                 np.linalg.cholesky(Sigma)
                                 locomo = locomo_probability_function(X=error, mu=np.zeros(3), Sigma=Sigma)
-                                locomo_prob.append(locomo)
+                                if(locomo>1):
+                                    print('                             uh-oh ', locomo)
                                 
                                 if not math.isnan(locomo):
                                     locomo_prob.append(locomo)
+                                # else append 0?
                             except np.linalg.LinAlgError:
                                     locomo_prob.append(0)
                         else:
@@ -90,7 +96,13 @@ def LoCoMo_remastered(  sampling_method,
                         locomo_prob.append(0)
 
                 if len(locomo_prob)>0:
-                    locomo_probabilities.append(np.mean(np.array(locomo_prob)))
+                    contact_probability_face = np.sum(np.array(locomo_prob))/normalizing_factor
+                    if math.isnan(contact_probability_face):
+                        print('                             uh-oh!!!!', contact_probability_face)
+                        print('                             uh-oh    ', np.array(locomo_prob), '_', np.sum(np.array(locomo_prob)), '_', np.sum(np.array(locomo_prob))/normalizing_factor)
+
+                    # print('LOCOMO PROBABILITY=', contact_probability_face)
+                    locomo_probabilities.append(contact_probability_face)
                     final_poses.append(pose)
                     final_transformations.append(t)
 
@@ -430,33 +442,32 @@ def ranking(end_poses_prob, k, w):
     '''
     return k*np.multiply(end_poses_prob, w)
 
-gripper = read_mesh("Grasper_Locomo.STL")
-gripper.translate((0, 0, 0), relative=False)
-gripper.scale(300, center=gripper.get_center())
-pc = mesh_to_point_cloud(gripper)
+# gripper = read_mesh("Grasper_Locomo.STL")
+# gripper.translate((0, 0, 0), relative=False)
+# gripper.scale(300, center=gripper.get_center())
+# pc = mesh_to_point_cloud(gripper)
+
+file = 'Labeled Bin - 1x2x5 - pinballgeek'
+box1 = read_mesh('Boxes STLs/'+file+'.obj')
+box1.translate([0, 0, 0], relative=False)
+
+box_pcd1 = mesh_to_point_cloud(mesh=box1, number_of_points=1000)
+
+objects = [box_pcd1]
+mesh2 = read_mesh("Gripper/Grasper_Locomo_scaled.STL")
+pc = mesh_to_point_cloud(mesh2)
+
+f1 = read_mesh("Gripper/face5.stl")
+f2 = read_mesh("Gripper/face6.stl")
+f3 = read_mesh("Gripper/face10.stl")
+f4 = read_mesh("Gripper/face13.stl")
 # o3d.io.write_triangle_mesh('attempt.STL', gripper, write_ascii=False, compressed=False, write_vertex_normals=True, write_vertex_colors=True, write_triangle_uvs=False, print_progress=True)
-gripper2 = read_mesh("grasper_scaled.STL")
+poses, transformation, locomo_prob = LoCoMo_remastered(sample_finger_poses_random,box_pcd1,
+                        fingers_model=mesh2,
+                        faces_models=[f1, f2, f3, f4],
+                        sphere_radius=10,
+                        poses_to_sample=10,
+                        distance=5)
 
-# o3d.visualization.draw_geometries([pc, gripper2])
-
-# o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Debug)
-# box = read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
-# box = read_mesh("Boxes STLs/Mega Box - 4x4x12 - ww9a.stl")
-# box = read_mesh("Boxes STLs/Labeled Divided Bin x2 - 1x3x6 - ZackFreedman.stl")
-# box.translate([0, 0, 0], relative=False)
-# box_pcd = mesh_to_point_cloud(mesh=box, number_of_points=1000)
-# sphere = o3d.geometry.TriangleMesh.create_sphere(10)
-# sphere.paint_uniform_color(np.array([.5, .5, .9]))
-# sphere.translate(np.array([0, 0, 0]), relative=False)
-
-
-# print(len(poses))
-# print('probabilities sorted ', locomo_prob)
-# for pose, t, prob in zip(poses, transformation,locomo_prob):
-#     print('t=', t)
-#     pose_pc = mesh_to_point_cloud(pose)
-#     vis = [box_pcd, pose_pc]
-#     for face in faces_models:
-#         f = copy.deepcopy(face).transform(t)
-#         vis.append(f)
-#     o3d.visualization.draw_geometries(vis, ('locomo=' + str(prob)))
+print(locomo_prob)
+o3d.visualization.draw_geometries([box_pcd1, mesh2, poses[0]])
