@@ -21,7 +21,7 @@ def transformation_matrix_to_angles(transformation_matrix):
     return angles[0], angles[1], angles[2]
 
 def transformation_matrix_to_pos(transformation_matrix):
-    print('translate=', transformation_matrix[0][3], transformation_matrix[1][3], transformation_matrix[2][3])
+    # print('translate=', transformation_matrix[0][3], transformation_matrix[1][3], transformation_matrix[2][3])
 
     return transformation_matrix[0][3], transformation_matrix[1][3], transformation_matrix[2][3]
 
@@ -40,7 +40,7 @@ mesh = read_mesh("grasper_scaled.STL")
 finger_model = [mesh]
 faces_models = [[read_mesh("Gripper/face5.stl"), read_mesh("Gripper/face6.stl"), read_mesh("Gripper/face10.stl"), read_mesh("Gripper/face13.stl")]]
 sphere_radius = [5, 10 , 15]
-poses_to_sample = [1, 2, 3]
+poses_to_sample = [10]
 distance = [5, 10, 20]
 
 dynamic_params = {

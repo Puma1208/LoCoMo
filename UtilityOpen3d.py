@@ -187,6 +187,10 @@ def get_adjacent_faces(m:o3d.geometry.TriangleMesh, face:o3d.geometry.TriangleMe
     if visualise:
         visualise_different_meshes(meshes=mesh_tri, change_color=True, colors=colors)
 
+def points_to_pointcloud(points:List[np.array]=[]):
+    return o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+
+
 
 
 

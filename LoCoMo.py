@@ -3,7 +3,7 @@ import numpy as np
 import copy
 import random
 import sys
-from UtilityOpen3d import read_mesh, mesh_to_point_cloud, distance_mesh_points, get_tri_meshes, distance_point_clouds, simplify_mesh, visualise_tri_faces, read_point_cloud
+from UtilityOpen3d import read_mesh, mesh_to_point_cloud, distance_mesh_points, get_tri_meshes, points_to_pointcloud, distance_point_clouds, simplify_mesh, visualise_tri_faces, read_point_cloud
 import math
 
 from skspatial.objects import Plane, Vector, Point, Line
@@ -54,21 +54,36 @@ def LoCoMo_remastered(  sampling_method,
                     projected_point = project_point_on_surface(face_pose, point_d)
                     zms2 = zero_moment_shift(sphere_center=projected_point, sphere_radius=sphere_radius, points=object_point_cloud.points)
                     error = zms1 - zms2
-
                     if len(points_within_d)>2:
-                        Sigma = np.cov(points_within_d, rowvar=False)
+                        # Sigma = np.cov(points_within_d, rowvar=False)
+                        pc = points_to_pointcloud(points_within_d)
+
+                        mu, Sigma = pc.compute_mean_and_covariance()
 
                         # The covariance matrix muyst be symmetric positive definite
                         # if np.linalg.det(Sigma) > 0:
                         # if np.all(np.linalg.eigvals(Sigma)) > 0 and  np.allclose(Sigma, Sigma.T):
-                        if np.linalg.det(Sigma) > 0:
 
-                            # print('python version=', locomo_probability_function(X=error, mu=np.zeros(3), Sigma=Sigma))
-                            locomo = locomo_probability_function(X=error, mu=np.zeros(3), Sigma=Sigma)
-                            if not math.isnan(locomo):
+                        #https://stackoverflow.com/a/41518536
+                        # min_eig = np.min(np.real(np.linalg.eigvals(Sigma)))
+                        # if min_eig < 0:
+                        #     Sigma -= 10*min_eig * np.eye(*Sigma.shape)
+                        #     locomo = locomo_probability_function(X=error, mu=np.zeros(3), Sigma=Sigma)
+                        #     if not math.isnan(locomo):
+                        #         locomo_prob.append(locomo)
+
+                        if np.linalg.det(Sigma) > 0 and np.all(np.linalg.eigvalsh(Sigma) > 0) and np.allclose(Sigma, Sigma.T):
+                            # print(Sigma)
+
+                            try:
+                                np.linalg.cholesky(Sigma)
+                                locomo = locomo_probability_function(X=error, mu=np.zeros(3), Sigma=Sigma)
                                 locomo_prob.append(locomo)
-                            else:
-                                locomo_prob.append(0)
+                                
+                                if not math.isnan(locomo):
+                                    locomo_prob.append(locomo)
+                            except np.linalg.LinAlgError:
+                                    locomo_prob.append(0)
                         else:
                             locomo_prob.append(0)
                     else:
@@ -175,6 +190,10 @@ def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, 
 
     finger_pc = mesh_to_point_cloud(finger_mesh)
     face_pc = mesh_to_point_cloud(finger_face)
+
+    # Use to first rotate so the face's normal points in the opposite direction to the point's normal
+    align_normal_to_opposite = rotation(finger_face.triangle_normals[0], -point_normal)
+
     
     poses = []
     T = []
@@ -195,14 +214,27 @@ def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, 
         # Other degrees of rotation are random
         rand_index = random.randint(0, len(face_pc.points))
         random_normal = np.array(face_pc.normals)[rand_index]
-        rotation_matrix = get_rotation_matrix(random_normal, -point_normal)
-        print(rotation_matrix)
-        print(Rotation.from_matrix(rotation_matrix))
-        print(Rotation.as_matrix(rotation_matrix))
+        # First face point opposite to point's normal
+        rotation_matrix_1 = align_normal_to_opposite
+        # print(rotation_matrix)
+        # print(Rotation.from_matrix(rotation_matrix))
+        # print(Rotation.as_matrix(rotation_matrix))
+
+        # Give random angle to rotate around normal as axis
+        random_angle = random.uniform(0, np.pi*2)
+        # Rodriguez rotation formula - matrix notation
+        # https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
+        k = -point_normal/np.linalg.norm(-point_normal)
+        K = np.array([[0, -k[2], k[1]],
+             [k[2], 0, -k[0]],
+             [-k[1], k[0], 0]])
+        a = math.sin(random_angle)
+        print(a)
+        rotation_matrix_2 = np.eye(3) + (math.sin(random_angle)*K) + ((1-math.cos(random_angle))*np.matmul(K, K))
         rotate = np.eye(4)
         # rotation_matrix = get_rotation_matrix(-point_normal, )
-        R = copy_finger.get_rotation_matrix_from_xyz(np.random.uniform(0,np.pi*2,3))
-        rotate[:3, :3] = R
+        # R = copy_finger.get_rotation_matrix_from_xyz(np.random.uniform(0,np.pi*2,3))
+        rotate[:3, :3] = np.matmul(rotation_matrix_1, rotation_matrix_2)
         
 
         copy_rotate_face = copy.deepcopy(finger_face).transform(translate_to_center).transform(rotate)
@@ -231,9 +263,23 @@ def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, 
     return poses, T
 
 
-def get_rotation_matrix(vector_1, vector_2):
-    rotation_matrix = Rotation.align_vectors(np.array([vector_1]), np.array([vector_2]))
-    return rotation_matrix
+def rotation(v1, v2):
+    # https://gist.github.com/kevinmoran/b45980723e53edeb8a5a43c49f134724
+
+    axis = np.cross(v1, v2)
+    cosA = np.dot(v1, v2)
+    k = 1/(1+cosA)
+
+    res = np.array([[   (axis[0]*axis[0]*k)+cosA, (axis[1]*axis[0]*k)-axis[2], (axis[2]*axis[0]*k)+axis[1]],
+                    [   (axis[0]*axis[1]*k)+axis[2], (axis[1]*axis[1]*k)+cosA, (axis[2]*axis[1]*k)-axis[0]],
+                    [   (axis[0]*axis[2]*k)-axis[1], (axis[1]*axis[2]*k)+axis[0], (axis[2]*axis[2]*k)+cosA]])
+
+
+    return res
+
+# def get_rotation_matrix(vector_1, vector_2):
+#     rotation_matrix = Rotation.align_vectors(np.array([vector_1]), np.array([vector_2]))
+#     return rotation_matrix
 
 def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10):
     '''
@@ -365,9 +411,11 @@ def locomo_probability_remastered(X, mu, Sigma):
     return res
     # return math.exp((-1/2)*matrices_mult)
 
-def locomo_probability_function(X, mu, Sigma):
+def locomo_probability_function(X, mu, Sigma):        
     multivariate_error = multivariate_normal(mean=mu, cov=Sigma)
+
     return multivariate_error.pdf(X)# * math.sqrt(((2*math.pi)**2)*np.linalg.det(Sigma))
+    # return multivariate_normal.pdf(X, mu, Sigma)
     
 
 def mean_covariance_points(X):
