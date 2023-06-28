@@ -1,7 +1,7 @@
 import open3d as o3d
 import copy 
 from itertools import product
-from LoCoMo import LoCoMo_remastered, sample_finger_poses_random
+from LoCoMo import LoCoMo_remastered, sample_finger_poses_random, sample_finger_poses_opposite
 from UtilityOpen3d import read_mesh, mesh_to_point_cloud
 import pandas as pd
 import numpy as np
@@ -26,7 +26,7 @@ def transformation_matrix_to_pos(transformation_matrix):
     return transformation_matrix[0][3], transformation_matrix[1][3], transformation_matrix[2][3]
 
 
-sampling_methods = [sample_finger_poses_random]#, LoCoMo.sample_finger_poses_opposite]
+sampling_methods = [sample_finger_poses_opposite]#, LoCoMo.sample_finger_poses_opposite]
 file = 'Labeled Bin - 1x2x5 - pinballgeek'
 box1 = read_mesh('Boxes STLs/'+file+'.obj')
 box1.translate([0, 0, 0], relative=False)
@@ -41,7 +41,7 @@ finger_model = [mesh]
 faces_models = [[read_mesh("Gripper/face5.stl"), read_mesh("Gripper/face6.stl"), read_mesh("Gripper/face10.stl"), read_mesh("Gripper/face13.stl")]]
 sphere_radius = [5, 10 , 15]
 poses_to_sample = [10]
-distance = [5, 10, 20]
+distance = [5]
 
 dynamic_params = {
 "sampling_method": sampling_methods,

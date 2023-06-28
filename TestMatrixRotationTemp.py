@@ -21,85 +21,84 @@ def rotation(v1, v2):
 
     return res
 def idrk():
+    # objects definition
     obj = UtilityOpen3d.read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
     box_pcd = UtilityOpen3d.mesh_to_point_cloud(mesh=obj, number_of_points=1000)
 
-    mesh = UtilityOpen3d.read_mesh("grasper_scaled.STL")
+    mesh = UtilityOpen3d.read_mesh("Gripper/Grasper_Locomo_scaled.STL")
     mesh_face = UtilityOpen3d.read_mesh('Gripper/face5.stl')
     face_normal = mesh_face.triangle_normals
 
-    # n = o3d.compute_triangle_normals(mesh_face)
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(np.asarray(mesh_face.vertices))
     pcd.estimate_normals()
 
-    pc = UtilityOpen3d.mesh_to_point_cloud(mesh, 100)
-
+    # Sphere creation to visualise current point better
     sphere = o3d.geometry.TriangleMesh.create_sphere(1)
     sphere.paint_uniform_color(np.array([.5, .5, .9]))
     point = np.array(box_pcd.points)[1]
     normal = np.array(box_pcd.normals)[1]
-    matrix = rotation(face_normal[0], normal)
-    print(matrix)
-
     sphere.translate(np.array(point), relative=False)
 
 
     ### Rotate face to face same direction as normal point
     # R1 = mesh_face.get_rotation_matrix_from_xyz((0, 0, 0))
-    print('normal=', normal)
-
-    R2 = o3d.geometry.get_rotation_matrix_from_xyz(normal)
+    print(face_normal)
+    matrix = rotation(face_normal[0], -normal)
     m = copy.deepcopy(mesh_face)
-    m.rotate(matrix, center=m.get_center())
+    r = copy.deepcopy(m).rotate(matrix, center=m.get_center())
+    r.paint_uniform_color(np.array([.8, .2, .2]))
+
+
+    # Correct transformation where first 
+    #       Translate to center
+    #       Rotate
+    #       Translate to right position
+    translate_to_center = np.eye(4)
+    translate_to_center[:3, 3] = -m.get_center()
+
+    rm = copy.deepcopy(mesh).transform(translate_to_center)
+    rm.paint_uniform_color(np.array([.3, .2, .7]))
+    prc = UtilityOpen3d.mesh_to_point_cloud(rm)
+
+    rotate = np.eye(4)
+    rotate[:3, :3] = matrix
+
+
+    #last translation
+    translate_to_goal = np.eye(4)
+    translate_to_goal[:3, 3] = np.array(point)
+    transformation = np.matmul(translate_to_goal, np.matmul(rotate, translate_to_center))
+    final_face = copy.deepcopy(mesh_face).transform(transformation)
+    final_face.paint_uniform_color(np.array([.2, .9, .9]))
+
+    rm2 = copy.deepcopy(mesh).transform(np.matmul(translate_to_goal, np.matmul(rotate, translate_to_center)))
+    rm2.paint_uniform_color(np.array([.3, .2, .7]))
+    prc = UtilityOpen3d.mesh_to_point_cloud(rm2)
+
+    mesh.transform(transformation)
+
+
+    transformation = np.eye(4)
+    # transformation[:3, 3] = np.array(point)
+    transformation[:3, :3] = matrix
+    transformed = copy.deepcopy(m).transform(transformation)
+    transformed.paint_uniform_color(np.array([.6, .5, .9]))
+    # mesh.transform(transformation)
+
     pcd2 = o3d.geometry.PointCloud()
     pcd2.points = o3d.utility.Vector3dVector(np.asarray(m.vertices))
     pcd2.estimate_normals()
-    # o3d.visualization.draw_geometries([mesh, mesh_r])
+    o3d.visualization.draw_geometries([box_pcd, sphere, r, transformed, mesh_face, final_face, prc, mesh])
+
     # o3d.visualization.draw_geometries([pc, sphere, mesh_face, pcd, pcd2, m])
 
 
 
-    poses, t = LoCoMo.sample_finger_poses_opposite(point, normal, finger_face=mesh_face, finger_mesh=mesh, amount_poses=2)
-    face = copy.deepcopy(mesh_face).transform(t[0])
-
-    o3d.visualization.draw_geometries([box_pcd, sphere, poses[0], face])
-
-
-    rotation = np.array([   [ 3.36565656e-01, -3.65493022e-01,  8.67835474e-01],
-                            [-3.98180461e-01,  7.79917068e-01,  4.82888897e-01],
-                            [-8.53332221e-01, -5.08078948e-01,  1.16961120e-01]])
-
-    print(rotation)
-
-    r = Rotation.from_matrix(rotation)
-    print('okay')
-    print(r.as_matrix())
-    angles = r.as_euler('xyz', degrees=False)
-
-    print('Rotation angles = ', angles)
-
-    mesh = UtilityOpen3d.read_mesh("Grasper_Locomo.STL")
-    mesh.paint_uniform_color(np.array([.5, .5, .9]))
-    # o3d.visualization.draw_geometries([mesh])
-
-
-    going_back = Rotation.from_euler('xyz', angles, degrees=False)
-
-    # r = R.from_euler('zyx', [[90, 45, 30]], degrees=True)
-    rotation = going_back.as_matrix()
-    print('rotation matrix')
-    print(rotation)
-
-
-    r = Rotation.from_matrix(rotation)
-    angles = r.as_euler('xyz', degrees=False)
-
-    print('Rotation angles = ', angles)
-
-# def rotate_to_vector():
-
-
+def get_translation(point_from, point_to):
+    if len(point_to)==len(point_from):
+        return point_to-point_from
+    
 def construct_rotation_matrix(rx, ry, rz):
     r_x = np.array([[1, 0, 0],
                     [0, np.cos(rx), -np.sin(rx)],
@@ -149,5 +148,4 @@ def test():
     final_face = copy.deepcopy(mesh).transform(transformation)
     o3d.visualization.draw_geometries([box_pcd1, pc, f1, f2, f3, f4, final_face])
 
-print(3)
-test()
+idrk()

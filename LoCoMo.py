@@ -18,6 +18,9 @@ import time
 # EPSILON = sys.float_info.epsilon
 EPSILON = 0.1
 
+# Could output the Local contact probability in 2 ways
+#       The mean of the locomo probabilities
+#       Using a normalizing factor which is the maximum number of points in the neighborhood of the finger
 def LoCoMo_remastered(  sampling_method,
                         object_point_cloud: o3d.cpu.pybind.geometry.PointCloud,
                         fingers_model: o3d.cpu.pybind.geometry.TriangleMesh,
@@ -38,7 +41,12 @@ def LoCoMo_remastered(  sampling_method,
         print('face=', finger_face)
         p = 0
         for point in list(object_point_cloud.points):
-            poses, transformations, faces_oriented = sampling_method(point, finger_face, fingers_model, poses_to_sample)
+            point_index = np.where(np.all(np.array(object_point_cloud.points) == (point), axis=1))
+
+            normal = np.array(object_point_cloud.normals)[point_index]
+
+            # poses, T = sample_finger_poses_opposite(point, normal, mesh_face, mesh, amount_poses=10)
+            poses, transformations, faces_oriented = sampling_method(point, normal[0], finger_face, fingers_model, poses_to_sample)
 
             print('     point=', p, '/', len(object_point_cloud.points))
             p +=1
@@ -81,7 +89,7 @@ def LoCoMo_remastered(  sampling_method,
 
                             try:
                                 np.linalg.cholesky(Sigma)
-                                locomo = locomo_probability_function(X=error, mu=np.zeros(3), Sigma=Sigma)
+                                locomo = locomo_probability_remastered(X=error, mu=np.zeros(3), Sigma=Sigma)
                                 if(locomo>1):
                                     print('                             uh-oh ', locomo)
                                 
@@ -191,7 +199,7 @@ def sample_finger_poses_around(point, gripper_model):
     return -1
 
 def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, amount_poses=10):
-    # Rotate the gripper such that the surface normal vector of the point points in the opposite direction
+    # Rotate the gripper such that the normal vector of the point points in the opposite direction
     # than the surface normal of the gripper
     # Sample the points on the gripper such that the are in contact with the goal point 
     # Need the surface that will be around the object
@@ -204,33 +212,31 @@ def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, 
     face_pc = mesh_to_point_cloud(finger_face)
 
     # Use to first rotate so the face's normal points in the opposite direction to the point's normal
-    align_normal_to_opposite = rotation(finger_face.triangle_normals[0], -point_normal)
 
+    # 1. Translate to center
+    #       The mesh
+    #       The face
+    # -> 2 different matrices
+    matrix_face_t, _ = translate_to_origin(finger_face)
+
+    # 2. Rotate so the face faces the direction opposite to the normal
+    print('normal1=',finger_face.triangle_normals[0])
+    print('normal2=', -point_normal)
+    align_normal_to_opposite_matrix = rotation(finger_face.triangle_normals[0], -point_normal)
+    r = np.eye(4)
+    r[:3, :3] = align_normal_to_opposite_matrix
+
+    face_center = copy.deepcopy(finger_face).transform(np.matmul(r, matrix_face_t))
     
     poses = []
     T = []
+    final_faces = []
     for _ in range(amount_poses):
 
         # Rotation happends around the center of the object
         # Move the center to the origin, then rotate, then translate back to initial position
         # Need to use the formula: T(x, y, z)*R(x, y, z)*T(-x, -y, -z)
 
-        # The rotation must be done in such a way that the normal vectors should face opposite directions
-        center = finger_mesh.get_center()
-        translate_to_center = np.eye(4)
-        translate_to_center[:3, 3] = -center
-        copy_finger = copy.deepcopy(finger_mesh).transform(translate_to_center)
-
-
-        # Choose the random point which normal vector should be in opposite direction of goal point
-        # Other degrees of rotation are random
-        rand_index = random.randint(0, len(face_pc.points))
-        random_normal = np.array(face_pc.normals)[rand_index]
-        # First face point opposite to point's normal
-        rotation_matrix_1 = align_normal_to_opposite
-        # print(rotation_matrix)
-        # print(Rotation.from_matrix(rotation_matrix))
-        # print(Rotation.as_matrix(rotation_matrix))
 
         # Give random angle to rotate around normal as axis
         random_angle = random.uniform(0, np.pi*2)
@@ -241,15 +247,14 @@ def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, 
              [k[2], 0, -k[0]],
              [-k[1], k[0], 0]])
         a = math.sin(random_angle)
-        print(a)
-        rotation_matrix_2 = np.eye(3) + (math.sin(random_angle)*K) + ((1-math.cos(random_angle))*np.matmul(K, K))
+        random_rotation = np.eye(3) + (math.sin(random_angle)*K) + ((1-math.cos(random_angle))*np.matmul(K, K))
         rotate = np.eye(4)
-        # rotation_matrix = get_rotation_matrix(-point_normal, )
-        # R = copy_finger.get_rotation_matrix_from_xyz(np.random.uniform(0,np.pi*2,3))
-        rotate[:3, :3] = np.matmul(rotation_matrix_1, rotation_matrix_2)
+        rotate[:3, :3] = random_rotation
         
 
-        copy_rotate_face = copy.deepcopy(finger_face).transform(translate_to_center).transform(rotate)
+        # Translate to random point on face to goal point
+        # Other degrees of rotation are random
+        copy_rotate_face = face_center.transform(rotate)
         copy_rotate_face_pc = mesh_to_point_cloud(copy_rotate_face)
 
         random_point = random.choice(copy_rotate_face_pc.points)
@@ -257,7 +262,7 @@ def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, 
         translate_to_goal = np.eye(4)
         translate_to_goal[:3, 3] = get_translation(random_point, point)
         
-        transformation = np.matmul(translate_to_goal, np.matmul(rotate, translate_to_center))
+        transformation = np.matmul(translate_to_goal, np.matmul(rotate, np.matmul(r, matrix_face_t)))
 
         final_face = copy.deepcopy(finger_face).transform(transformation)
         final_mesh = copy.deepcopy(finger_mesh).transform(transformation)
@@ -265,6 +270,7 @@ def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, 
         final_pc = mesh_to_point_cloud(final_mesh)
         final_face.paint_uniform_color(np.array([.5, .5, .9]))
 
+        final_faces.append(copy.deepcopy(finger_face).transform(transformation))
 
         poses.append(final_mesh)
         T.append(transformation)
@@ -272,7 +278,13 @@ def sample_finger_poses_opposite(point, point_normal, finger_face, finger_mesh, 
         visualisation = [finger_pc, finger_face, final_face, final_pc, point_goal]#, mesh_tr_pc]#, gripper_v]#, mesh_tr]
         # o3d.visualization.draw_geometries(visualisation)
 
-    return poses, T
+    return poses, T, final_faces
+
+def translate_to_origin(mesh:o3d.cpu.pybind.geometry.TriangleMesh):
+    translate_to_origin = np.eye(4)
+    translate_to_origin[:3, 3] = -mesh.get_center()
+    return translate_to_origin, copy.deepcopy(mesh).transform(translate_to_origin)
+
 
 
 def rotation(v1, v2):
@@ -420,8 +432,8 @@ def locomo_probability_remastered(X, mu, Sigma):
     matrices_mult = np.matmul(np.matmul(diff.transpose(), Sigma), diff)
     mvg = (1/(math.sqrt(((2*math.pi)**2)*np.linalg.det(Sigma)))) *  math.exp((-1/2)*matrices_mult)
     res = 1 - ((math.sqrt(((2*math.pi)**2)*np.linalg.det(Sigma)) - mvg)/math.sqrt(((2*math.pi)**2)*np.linalg.det(Sigma)))
-    return res
-    # return math.exp((-1/2)*matrices_mult)
+    # return res
+    return math.exp((-1/2)*matrices_mult)
 
 def locomo_probability_function(X, mu, Sigma):        
     multivariate_error = multivariate_normal(mean=mu, cov=Sigma)
@@ -442,32 +454,62 @@ def ranking(end_poses_prob, k, w):
     '''
     return k*np.multiply(end_poses_prob, w)
 
+# objects definition
+# obj = read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
+# box_pcd = mesh_to_point_cloud(mesh=obj, number_of_points=1000)
+# box_pcd.estimate_normals()
+
+# mesh = read_mesh("Gripper/Grasper_Locomo_scaled.STL")
+# mesh_face = read_mesh('Gripper/face5.stl')
+# face_normal = mesh_face.triangle_normals
+
+# pcd = o3d.geometry.PointCloud()
+# pcd.points = o3d.utility.Vector3dVector(np.asarray(mesh_face.vertices))
+# pcd.estimate_normals()
+
+# # Sphere creation to visualise current point better
+# sphere = o3d.geometry.TriangleMesh.create_sphere(1)
+# sphere.paint_uniform_color(np.array([.5, .5, .9]))
+# point = np.array(box_pcd.points)[500]
+# normal = np.array(box_pcd.normals)[500]
+# sphere.translate(np.array(point), relative=False)
+
+# poses, T, f = sample_finger_poses_opposite(point, normal, mesh_face, mesh, amount_poses=10)
+# for pose, t, ffff in zip(poses, T, f):
+#     pose.paint_uniform_color(np.array([.5, .5, .9]))
+#     ffff.paint_uniform_color(np.array([.2, .8, .4]))
+#     pc = mesh_to_point_cloud(pose)
+
+#     face = copy.deepcopy(mesh_face).transform(t)
+#     visualisation = [box_pcd, sphere, ffff, pc]#, final_face, final_pc, point_goal]#, mesh_tr_pc]#, gripper_v]#, mesh_tr]
+#     o3d.visualization.draw_geometries(visualisation)
+
 # gripper = read_mesh("Grasper_Locomo.STL")
 # gripper.translate((0, 0, 0), relative=False)
 # gripper.scale(300, center=gripper.get_center())
-# pc = mesh_to_point_cloud(gripper)
+# # pc = mesh_to_point_cloud(gripper)
 
-file = 'Labeled Bin - 1x2x5 - pinballgeek'
-box1 = read_mesh('Boxes STLs/'+file+'.obj')
-box1.translate([0, 0, 0], relative=False)
+# file = 'Labeled Bin - 1x2x5 - pinballgeek'
+# box1 = read_mesh('Boxes STLs/'+file+'.obj')
+# box1.translate([0, 0, 0], relative=False)
 
-box_pcd1 = mesh_to_point_cloud(mesh=box1, number_of_points=1000)
+# box_pcd1 = mesh_to_point_cloud(mesh=box1, number_of_points=1000)
 
-objects = [box_pcd1]
-mesh2 = read_mesh("Gripper/Grasper_Locomo_scaled.STL")
-pc = mesh_to_point_cloud(mesh2)
+# objects = [box_pcd1]
+# mesh2 = read_mesh("Gripper/Grasper_Locomo_scaled.STL")
+# pc = mesh_to_point_cloud(mesh2)
 
-f1 = read_mesh("Gripper/face5.stl")
-f2 = read_mesh("Gripper/face6.stl")
-f3 = read_mesh("Gripper/face10.stl")
-f4 = read_mesh("Gripper/face13.stl")
-# o3d.io.write_triangle_mesh('attempt.STL', gripper, write_ascii=False, compressed=False, write_vertex_normals=True, write_vertex_colors=True, write_triangle_uvs=False, print_progress=True)
-poses, transformation, locomo_prob = LoCoMo_remastered(sample_finger_poses_random,box_pcd1,
-                        fingers_model=mesh2,
-                        faces_models=[f1, f2, f3, f4],
-                        sphere_radius=10,
-                        poses_to_sample=10,
-                        distance=5)
+# f1 = read_mesh("Gripper/face5.stl")
+# f2 = read_mesh("Gripper/face6.stl")
+# f3 = read_mesh("Gripper/face10.stl")
+# f4 = read_mesh("Gripper/face13.stl")
+# # o3d.io.write_triangle_mesh('attempt.STL', gripper, write_ascii=False, compressed=False, write_vertex_normals=True, write_vertex_colors=True, write_triangle_uvs=False, print_progress=True)
+# poses, transformation, locomo_prob = LoCoMo_remastered(sample_finger_poses_random,box_pcd1,
+#                         fingers_model=mesh2,
+#                         faces_models=[f1, f2, f3, f4],
+#                         sphere_radius=10,
+#                         poses_to_sample=10,
+#                         distance=5)
 
-print(locomo_prob)
-o3d.visualization.draw_geometries([box_pcd1, mesh2, poses[0]])
+# print(locomo_prob)
+# o3d.visualization.draw_geometries([box_pcd1, mesh2, poses[0]])
