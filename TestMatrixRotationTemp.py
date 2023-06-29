@@ -12,86 +12,35 @@ def rotation(v1, v2):
 
     axis = np.cross(v1, v2)
     cosA = np.dot(v1, v2)
+    if cosA == -1:
+        # the 2 vectors are opposite -> no rotation required
+        return np.eye(3)
     k = 1/(1+cosA)
 
     res = np.array([[   (axis[0]*axis[0]*k)+cosA, (axis[1]*axis[0]*k)-axis[2], (axis[2]*axis[0]*k)+axis[1]],
                     [   (axis[0]*axis[1]*k)+axis[2], (axis[1]*axis[1]*k)+cosA, (axis[2]*axis[1]*k)-axis[0]],
                     [   (axis[0]*axis[2]*k)-axis[1], (axis[1]*axis[2]*k)+axis[0], (axis[2]*axis[2]*k)+cosA]])
-
-
     return res
 def idrk():
     # objects definition
     obj = UtilityOpen3d.read_mesh("Boxes STLs/Labeled Bin - 1x2x5 - pinballgeek.obj")
+    obj.translate([0, 0, 0], relative=False)
     box_pcd = UtilityOpen3d.mesh_to_point_cloud(mesh=obj, number_of_points=1000)
 
     mesh = UtilityOpen3d.read_mesh("Gripper/Grasper_Locomo_scaled.STL")
     mesh_face = UtilityOpen3d.read_mesh('Gripper/face5.stl')
     face_normal = mesh_face.triangle_normals
 
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(np.asarray(mesh_face.vertices))
-    pcd.estimate_normals()
+    # transformation = [  [  0.4539991    , 0.          , -0.89100214,  -56.7365679 ],
+    #                     [  0.           , 1.          ,  0.        ,   12.19999886],
+    #                     [  0.89100214   , 0.          ,  0.4539991 ,  -50.60259838],
+    #                     [  0.           , 0.          ,  0.        ,    1.        ]]
+    transformation = transformation_matrix(-56.7365679, 12.19999886, -50.60259838, 0.0,   -1.0995477718491884,   0.0)
+    print(transformation)
+    mesh_t = copy.deepcopy(mesh).transform(transformation)
 
-    # Sphere creation to visualise current point better
-    sphere = o3d.geometry.TriangleMesh.create_sphere(1)
-    sphere.paint_uniform_color(np.array([.5, .5, .9]))
-    point = np.array(box_pcd.points)[1]
-    normal = np.array(box_pcd.normals)[1]
-    sphere.translate(np.array(point), relative=False)
+    o3d.visualization.draw_geometries([box_pcd, mesh_t])
 
-
-    ### Rotate face to face same direction as normal point
-    # R1 = mesh_face.get_rotation_matrix_from_xyz((0, 0, 0))
-    print(face_normal)
-    matrix = rotation(face_normal[0], -normal)
-    m = copy.deepcopy(mesh_face)
-    r = copy.deepcopy(m).rotate(matrix, center=m.get_center())
-    r.paint_uniform_color(np.array([.8, .2, .2]))
-
-
-    # Correct transformation where first 
-    #       Translate to center
-    #       Rotate
-    #       Translate to right position
-    translate_to_center = np.eye(4)
-    translate_to_center[:3, 3] = -m.get_center()
-
-    rm = copy.deepcopy(mesh).transform(translate_to_center)
-    rm.paint_uniform_color(np.array([.3, .2, .7]))
-    prc = UtilityOpen3d.mesh_to_point_cloud(rm)
-
-    rotate = np.eye(4)
-    rotate[:3, :3] = matrix
-
-
-    #last translation
-    translate_to_goal = np.eye(4)
-    translate_to_goal[:3, 3] = np.array(point)
-    transformation = np.matmul(translate_to_goal, np.matmul(rotate, translate_to_center))
-    final_face = copy.deepcopy(mesh_face).transform(transformation)
-    final_face.paint_uniform_color(np.array([.2, .9, .9]))
-
-    rm2 = copy.deepcopy(mesh).transform(np.matmul(translate_to_goal, np.matmul(rotate, translate_to_center)))
-    rm2.paint_uniform_color(np.array([.3, .2, .7]))
-    prc = UtilityOpen3d.mesh_to_point_cloud(rm2)
-
-    mesh.transform(transformation)
-
-
-    transformation = np.eye(4)
-    # transformation[:3, 3] = np.array(point)
-    transformation[:3, :3] = matrix
-    transformed = copy.deepcopy(m).transform(transformation)
-    transformed.paint_uniform_color(np.array([.6, .5, .9]))
-    # mesh.transform(transformation)
-
-    pcd2 = o3d.geometry.PointCloud()
-    pcd2.points = o3d.utility.Vector3dVector(np.asarray(m.vertices))
-    pcd2.estimate_normals()
-    o3d.visualization.draw_geometries([box_pcd, sphere, r, transformed, mesh_face, final_face, prc, mesh])
-
-    # o3d.visualization.draw_geometries([pc, sphere, mesh_face, pcd, pcd2, m])
 
 
 
