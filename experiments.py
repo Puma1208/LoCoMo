@@ -22,15 +22,15 @@ def transformation_matrix_to_angles(transformation_matrix):
 def transformation_matrix_to_pos(transformation_matrix):
     return transformation_matrix[0][3], transformation_matrix[1][3], transformation_matrix[2][3]
 
-
-sampling_methods = [sample_finger_poses_opposite]#, LoCoMo.sample_finger_poses_opposite]
+print(o3d.__version__)
+sampling_methods = [sample_finger_poses_random]#, LoCoMo.sample_finger_poses_opposite]
 file = 'Labeled Bin - 1x2x5 - pinballgeek'
 # file = 'DatasetImages/whiteStainer/9_whiteStainer.ply'
 box1 = read_mesh('Boxes STLs/'+file+'.obj')
 # box1 = read_point_cloud(file)
 box1.translate([0, 0, 0], relative=False)
 
-box_pcd1 = mesh_to_point_cloud(mesh=box1, number_of_points=500)
+box_pcd1 = mesh_to_point_cloud(mesh=box1, number_of_points=800)
 sphere = o3d.geometry.TriangleMesh.create_sphere(5)
 sphere.paint_uniform_color(np.array([.5, .5, .9]))
 sphere.translate(np.array(np.array(box_pcd1.points[0])), relative=False)

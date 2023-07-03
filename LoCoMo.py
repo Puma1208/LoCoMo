@@ -264,7 +264,7 @@ def rotation(v1, v2):
 
     return res
 
-def sample_finger_poses_random(point, finger_face, finger_mesh, amount_poses=10):
+def sample_finger_poses_random(point, point_normal, finger_face, finger_mesh, amount_poses=10):
     '''
     Return the rotation matrix
 
