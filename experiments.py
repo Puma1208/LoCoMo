@@ -29,17 +29,35 @@ file = 'Labeled Bin - 1x2x5 - pinballgeek'
 box1 = read_mesh('Boxes STLs/'+file+'.obj')
 # box1 = read_point_cloud(file)
 box1.translate([0, 0, 0], relative=False)
+files = ['sphere_r=1.ply', 'box_w=20_h=10_d=15.ply', 'box_w=40_h=20_d=30.ply']
 
 box_pcd1 = mesh_to_point_cloud(mesh=box1, number_of_points=800)
-sphere = o3d.geometry.TriangleMesh.create_sphere(5)
+sphere = o3d.geometry.TriangleMesh.create_sphere(10)
 sphere.paint_uniform_color(np.array([.5, .5, .9]))
-sphere.translate(np.array(np.array(box_pcd1.points[0])), relative=False)
-objects = [box_pcd1]
-# o3d.visualization.draw_geometries([sphere, box_pcd1])
+sphere.translate([0, 0, 0], relative=False)
+sphere_pc = mesh_to_point_cloud(mesh=sphere, number_of_points=500)
+# o3d.io.write_triangle_mesh("sphere_r=1.ply", sphere)
+
+box = o3d.geometry.TriangleMesh.create_box(20, 10, 15)
+box.paint_uniform_color(np.array([.7, .7, .5]))
+box.translate([0, 0, 0], relative=False)
+box_pc = mesh_to_point_cloud(mesh=box, number_of_points=500)
+# o3d.io.write_triangle_mesh("box_w=20_h=10_d=15.ply", sphere)
+
+
+box2 = o3d.geometry.TriangleMesh.create_box(40, 20, 30)
+box2.paint_uniform_color(np.array([.7, .7, .5]))
+box2.translate([0, 0, 0], relative=False)
+box2_pc = mesh_to_point_cloud(mesh=box2, number_of_points=500)
+# o3d.io.write_triangle_mesh("box_w=40_h=20_d=30.ply", sphere)
+
+objects = [sphere_pc, box_pc, box2_pc]
 
 mesh = read_mesh("Gripper/Grasper_Locomo_scaled.STL")
 
 finger_model = [mesh]
+# o3d.visualization.draw_geometries([box2, mesh])
+
 faces_models = [[read_mesh("Gripper/face5.stl"), read_mesh("Gripper/face6.stl"), read_mesh("Gripper/face10.stl"), read_mesh("Gripper/face13.stl")]]
 sphere_radius = [5, 10 , 15]
 poses_to_sample = [10]
@@ -63,7 +81,16 @@ if not os.path.exists(path_dir):
     print('Creating a new path: ', path_dir)
     os.mkdir(path_dir)
 
+object_index = 0
+i = 0
 for paramset in param_values:
+    i += 1
+    if i>9:
+        object_index = 1
+
+    if i>18:
+        object_index = 2
+    file = files[object_index]
 
     kwargs = dict(paramset)
     d = dict(paramset)
@@ -82,7 +109,7 @@ for paramset in param_values:
 
     rx, ry, rz = zip(*rotation)
     x, y, z = zip(*translation)
-    title =  file + ', ' + str(kwargs['sampling_method']) + ', ' + str(kwargs['sphere_radius']) + ', ' + str(kwargs['poses_to_sample']) + ', ' + str(kwargs['distance']) + ', ' + str(duration)
+    title =  str(object_index) + ' ' + file + ', ' + str(kwargs['sampling_method']) + ', ' + str(kwargs['sphere_radius']) + ', ' + str(kwargs['poses_to_sample']) + ', ' + str(kwargs['distance']) + ', ' + str(duration)
 
     df = pd.DataFrame({'Probabilities': (locomo_prob), 'x' : (x), 'y' : (y), 'z' : (z), 'rx' : (rx), 'ry' : (ry), 'rz' : (rz)})
     df.to_csv(path_dir+title+'.csv')

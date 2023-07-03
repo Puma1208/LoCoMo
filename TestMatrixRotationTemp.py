@@ -28,18 +28,21 @@ def idrk():
     box_pcd = UtilityOpen3d.mesh_to_point_cloud(mesh=obj, number_of_points=1000)
 
     mesh = UtilityOpen3d.read_mesh("Gripper/Grasper_Locomo_scaled.STL")
-    mesh_face = UtilityOpen3d.read_mesh('Gripper/face5.stl')
-    face_normal = mesh_face.triangle_normals
 
-    # transformation = [  [  0.4539991    , 0.          , -0.89100214,  -56.7365679 ],
-    #                     [  0.           , 1.          ,  0.        ,   12.19999886],
-    #                     [  0.89100214   , 0.          ,  0.4539991 ,  -50.60259838],
-    #                     [  0.           , 0.          ,  0.        ,    1.        ]]
-    transformation = transformation_matrix(-56.7365679, 12.19999886, -50.60259838, 0.0,   -1.0995477718491884,   0.0)
-    print(transformation)
-    mesh_t = copy.deepcopy(mesh).transform(transformation)
+    mesh = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
 
-    o3d.visualization.draw_geometries([box_pcd, mesh_t])
+    # mesh_face = UtilityOpen3d.read_mesh('Gripper/face5.stl')
+    # face_normal = mesh_face.triangle_normals
+
+    # # transformation = [  [  0.4539991    , 0.          , -0.89100214,  -56.7365679 ],
+    # #                     [  0.           , 1.          ,  0.        ,   12.19999886],
+    # #                     [  0.89100214   , 0.          ,  0.4539991 ,  -50.60259838],
+    # #                     [  0.           , 0.          ,  0.        ,    1.        ]]
+    # transformation = transformation_matrix(-56.7365679, 12.19999886, -50.60259838, 0.0,   -1.0995477718491884,   0.0)
+    # print(transformation)
+    # mesh_t = copy.deepcopy(mesh).transform(transformation)
+
+    # o3d.visualization.draw_geometries([box_pcd, mesh_t])
 
 
 
