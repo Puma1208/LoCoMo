@@ -77,7 +77,7 @@ def transformation_matrix(x, y, z, rx, ry, rz):
     return transformation
 
 def test():
-    x, y, z, rx, ry, rz = 17.811325826769803,-37.225519958085236,-39.16957494060413,-2.097374234576773,-0.7892227998030232,1.6846462525822603
+    x, y, z, rx, ry, rz = -2.8,-41.799,60.7,3.14,1.22,3.14
     transformation = transformation_matrix(x, y, z, rx, ry, rz)
 
     # print(transformation)
@@ -85,7 +85,7 @@ def test():
     box1 = UtilityOpen3d.read_mesh('Boxes STLs/'+file+'.obj')
     box1.translate([0, 0, 0], relative=False)
 
-    box_pcd1 = UtilityOpen3d.mesh_to_point_cloud(mesh=box1, number_of_points=1000)
+    box_pcd1 = UtilityOpen3d.mesh_to_point_cloud(mesh=box1, number_of_points=5000)
 
     objects = [box_pcd1]
     mesh = UtilityOpen3d.read_mesh("Gripper/Grasper_Locomo_scaled.STL")
@@ -100,4 +100,4 @@ def test():
     final_face = copy.deepcopy(mesh).transform(transformation)
     o3d.visualization.draw_geometries([box_pcd1, pc, f1, f2, f3, f4, final_face])
 
-idrk()
+test()
